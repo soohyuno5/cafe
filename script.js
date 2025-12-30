@@ -1,154 +1,135 @@
 // ============================================
-// 사내 카페 예약 시스템 JavaScript
+// 캠핑 예약 정보 관리 JavaScript
 // ============================================
 
-// Google Apps Script 웹앱 URL (배포 후 여기에 URL을 입력하세요)
+// Google Apps Script 웹앱 URL
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw32Tv6eHm7cWvzW0bp_skKwW3dCblCqRbhDJzInN4KVqDd5NEA8PCT39Yh7pNF5VBHDw/exec';
 
 // DOM이 로드된 후 실행
 document.addEventListener('DOMContentLoaded', function() {
-    initializeDatePicker();
+    initializeParsing();
     initializeFormSubmission();
-    initializeSmoothScroll();
 });
 
 // ============================================
-// 날짜 선택기 초기화
+// 정보 추출(파싱) 기능 초기화
 // ============================================
-function initializeDatePicker() {
-    const dateInput = document.getElementById('date');
+function initializeParsing() {
+    const parseButton = document.getElementById('parseButton');
+    const reservationText = document.getElementById('reservationText');
 
-    // 오늘 날짜를 최소 날짜로 설정
-    const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
-    dateInput.setAttribute('min', todayStr);
-
-    // 최대 30일 후까지 예약 가능
-    const maxDate = new Date();
-    maxDate.setDate(maxDate.getDate() + 30);
-    const maxDateStr = maxDate.toISOString().split('T')[0];
-    dateInput.setAttribute('max', maxDateStr);
-
-    // 주말 선택 방지
-    dateInput.addEventListener('change', function() {
-        const selectedDate = new Date(this.value);
-        const dayOfWeek = selectedDate.getDay();
-
-        if (dayOfWeek === 0 || dayOfWeek === 6) {
-            alert('주말은 카페가 운영되지 않습니다. 평일을 선택해주세요.');
-            this.value = '';
+    parseButton.addEventListener('click', function() {
+        const text = reservationText.value;
+        if (!text) {
+            alert('먼저 예약 내용을 붙여넣어 주세요.');
+            return;
         }
+        parseReservationText(text);
     });
 }
+
+// ============================================
+// 예약 텍스트를 파싱하여 폼 필드에 채우기
+// ============================================
+function parseReservationText(text) {
+    // 각 항목에 대한 정규식
+    const patterns = {
+        reservationDate: /예약일자\s*:\s*(.*)/,
+        siteName: /사이트명\s*:\s*(.*)/,
+        paymentAmount: /결제금액\s*:\s*([\d,]+)원/,
+        paymentMethod: /결제수단\s*:\s*(.*)/,
+        adults: /성인:(\d+)/,
+        children: /소인:(\d+)/,
+        reservationNumber: /예약번호\s*:\s*(\d+)/,
+        name: /예약자명\s*:\s*(.*)/,
+        phone: /전화번호\s*:\s*([\d-]+)/,
+    };
+
+    // 정규식을 사용하여 정보 추출 및 필드 채우기
+    for (const key in patterns) {
+        const match = text.match(patterns[key]);
+        const element = document.getElementById(key);
+        if (element) {
+            // 'name' 필드의 경우, 이름 뒤에 오는 추가 정보를 제거
+            if (key === 'name' && match && match[1]) {
+                element.value = match[1].split('-')[0].trim();
+            } 
+            // 다른 필드는 정규식의 첫 번째 캡처 그룹을 사용
+            else if (match && match[1]) {
+                element.value = match[1].trim();
+            } 
+            // 정보가 없는 경우 필드를 비움
+            else {
+                element.value = '';
+            }
+        }
+    }
+    
+    // 파싱 후 사용자에게 알림
+    showMessage('success', '정보 추출이 완료되었습니다. 내용을 확인하고 시트에 저장하세요.');
+}
+
 
 // ============================================
 // 폼 제출 처리
 // ============================================
 function initializeFormSubmission() {
     const form = document.getElementById('reservationForm');
-    const resultMessage = document.getElementById('resultMessage');
-
+    
     form.addEventListener('submit', async function(e) {
         e.preventDefault();
 
         // 폼 데이터 수집
         const formData = {
+            reservationNumber: document.getElementById('reservationNumber').value,
             name: document.getElementById('name').value,
-            department: document.getElementById('department').value,
-            email: document.getElementById('email').value,
             phone: document.getElementById('phone').value,
-            date: document.getElementById('date').value,
-            time: document.getElementById('time').value,
-            guests: document.getElementById('guests').value,
-            message: document.getElementById('message').value,
+            reservationDate: document.getElementById('reservationDate').value,
+            siteName: document.getElementById('siteName').value,
+            paymentAmount: document.getElementById('paymentAmount').value,
+            paymentMethod: document.getElementById('paymentMethod').value,
+            adults: document.getElementById('adults').value,
+            children: document.getElementById('children').value,
             timestamp: new Date().toISOString()
         };
 
-        // 유효성 검사
-        if (!validateForm(formData)) {
+        // 필수 데이터 확인
+        if (!formData.reservationNumber || !formData.name) {
+            showMessage('error', '추출된 정보가 올바르지 않습니다. 예약 번호와 이름이 있는지 확인해주세요.');
             return;
         }
 
         // 제출 버튼 비활성화 및 로딩 표시
         const submitBtn = form.querySelector('.btn-submit');
         submitBtn.disabled = true;
-        submitBtn.textContent = '예약 처리 중...';
-
-        showMessage('loading', '예약을 처리하고 있습니다...');
+        submitBtn.textContent = '저장 중...';
+        showMessage('loading', 'Google Sheet에 정보를 저장하고 있습니다...');
 
         try {
             // Google Apps Script로 데이터 전송
-            const response = await submitReservation(formData);
+            const response = await fetch(APPS_SCRIPT_URL, {
+                method: 'POST',
+                mode: 'no-cors', // no-cors 모드 사용
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(formData)
+            });
 
-            if (response.success) {
-                showMessage('success', '예약이 완료되었습니다! 확인 이메일을 확인해주세요.');
-                form.reset();
-            } else {
-                showMessage('error', '예약 처리 중 오류가 발생했습니다: ' + (response.message || '알 수 없는 오류'));
-            }
+            // no-cors 모드에서는 응답을 직접 읽을 수 없으므로, 요청이 보내진 것으로 간주하고 성공 처리
+            showMessage('success', '예약 정보가 Google Sheet에 성공적으로 저장되었습니다!');
+            form.reset(); // 폼 초기화
+            document.getElementById('reservationText').value = ''; // 텍스트 영역도 초기화
+
         } catch (error) {
-            console.error('예약 오류:', error);
-
-            // Apps Script URL이 설정되지 않은 경우
-            if (APPS_SCRIPT_URL === 'YOUR_APPS_SCRIPT_WEB_APP_URL_HERE') {
-                showMessage('error', 'Google Apps Script URL이 설정되지 않았습니다. 구현 설명서를 참고하여 설정해주세요.');
-            } else {
-                showMessage('error', '서버 연결에 실패했습니다. 잠시 후 다시 시도해주세요.');
-            }
+            console.error('저장 오류:', error);
+            showMessage('error', '서버 연결에 실패했습니다. 잠시 후 다시 시도해주세요.');
         } finally {
+            // 제출 버튼 다시 활성화
             submitBtn.disabled = false;
-            submitBtn.textContent = '예약 신청';
+            submitBtn.textContent = 'Google Sheet에 저장';
         }
     });
-}
-
-// ============================================
-// 폼 유효성 검사
-// ============================================
-function validateForm(formData) {
-    // 이메일 형식 검사
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(formData.email)) {
-        alert('올바른 이메일 주소를 입력해주세요.');
-        return false;
-    }
-
-    // 날짜 검사 (과거 날짜 방지)
-    const selectedDate = new Date(formData.date);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    if (selectedDate < today) {
-        alert('과거 날짜는 선택할 수 없습니다.');
-        return false;
-    }
-
-    // 주말 검사
-    const dayOfWeek = selectedDate.getDay();
-    if (dayOfWeek === 0 || dayOfWeek === 6) {
-        alert('주말은 예약할 수 없습니다. 평일을 선택해주세요.');
-        return false;
-    }
-
-    return true;
-}
-
-// ============================================
-// Google Apps Script로 예약 데이터 전송
-// ============================================
-async function submitReservation(formData) {
-    const response = await fetch(APPS_SCRIPT_URL, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(formData)
-    });
-
-    // no-cors 모드에서는 응답을 읽을 수 없으므로 성공으로 처리
-    // 실제 운영 환경에서는 CORS 설정을 통해 응답을 처리하는 것이 좋습니다
-    return { success: true };
 }
 
 // ============================================
@@ -158,58 +139,12 @@ function showMessage(type, text) {
     const resultMessage = document.getElementById('resultMessage');
     resultMessage.className = 'result-message ' + type;
     resultMessage.textContent = text;
+    resultMessage.style.display = 'block';
 
-    // 성공 메시지는 5초 후 자동으로 숨김
-    if (type === 'success') {
-        setTimeout(() => {
-            resultMessage.className = 'result-message';
-            resultMessage.textContent = '';
-        }, 5000);
-    }
-}
-
-// ============================================
-// 부드러운 스크롤 초기화
-// ============================================
-function initializeSmoothScroll() {
-    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-        anchor.addEventListener('click', function(e) {
-            e.preventDefault();
-
-            const targetId = this.getAttribute('href');
-            const targetElement = document.querySelector(targetId);
-
-            if (targetElement) {
-                const headerHeight = document.querySelector('.header').offsetHeight;
-                const targetPosition = targetElement.offsetTop - headerHeight;
-
-                window.scrollTo({
-                    top: targetPosition,
-                    behavior: 'smooth'
-                });
-            }
-        });
-    });
-}
-
-// ============================================
-// 테스트용 함수 (개발 시 사용)
-// ============================================
-function testFormSubmission() {
-    console.log('테스트 모드: 폼 데이터 콘솔 출력');
-
-    const formData = {
-        name: document.getElementById('name').value,
-        department: document.getElementById('department').value,
-        email: document.getElementById('email').value,
-        phone: document.getElementById('phone').value,
-        date: document.getElementById('date').value,
-        time: document.getElementById('time').value,
-        guests: document.getElementById('guests').value,
-        message: document.getElementById('message').value,
-        timestamp: new Date().toISOString()
-    };
-
-    console.log('예약 데이터:', formData);
-    return formData;
+    // 5초 후 메시지 자동으로 숨김
+    setTimeout(() => {
+        resultMessage.style.display = 'none';
+        resultMessage.className = 'result-message';
+        resultMessage.textContent = '';
+    }, 5000);
 }

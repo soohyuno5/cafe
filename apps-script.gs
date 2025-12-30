@@ -1,218 +1,138 @@
 // ============================================
-// 사내 카페 예약 시스템 - Google Apps Script
-// 이 코드를 Google Sheets의 Apps Script 편집기에 붙여넣기 하세요
-// ============================================
+// 캠핑 예약 관리 시스템 - Google Apps Script
+// 이 코드를 Google Sheets의 Apps Script 편집기에 붙여넣으세요.
+// ============================================ 
 
-// 스프레드시트 설정
-// 이 함수를 한 번 실행하여 시트 헤더를 설정합니다
+/**
+ * @description 스프레드시트 초기 설정을 위한 함수입니다.
+ * 메뉴에서 이 함수를 한 번 실행하여 시트 헤더를 설정하세요.
+ */
 function setupSpreadsheet() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
 
-  // 시트 이름 변경
-  sheet.setName('예약목록');
+  // 시트 이름 설정
+  sheet.setName('캠핑예약목록');
 
-  // 헤더 설정
+  // 헤더 정의
   const headers = [
-    '접수번호',
-    '접수일시',
-    '예약자명',
-    '부서',
-    '이메일',
-    '연락처',
-    '예약날짜',
-    '예약시간',
-    '인원수',
-    '요청사항',
-    '상태'
+    '예약번호', '예약자명', '전화번호', '예약일자', '사이트명', 
+    '결제금액', '결제수단', '성인', '소인', '저장일시'
   ];
 
-  // 헤더 입력
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-
-  // 헤더 스타일 설정
+  // 헤더 쓰기
   const headerRange = sheet.getRange(1, 1, 1, headers.length);
-  headerRange.setBackground('#8B4513');
-  headerRange.setFontColor('#FFFFFF');
-  headerRange.setFontWeight('bold');
-  headerRange.setHorizontalAlignment('center');
+  headerRange.setValues([headers]);
+
+  // 헤더 스타일링
+  headerRange.setBackground('#2E7D32') // Green
+             .setFontColor('#FFFFFF')
+             .setFontWeight('bold')
+             .setHorizontalAlignment('center');
 
   // 열 너비 자동 조정
-  for (let i = 1; i <= headers.length; i++) {
-    sheet.autoResizeColumn(i);
-  }
-
-  // 첫 번째 행 고정
+  headers.forEach((_, i) => {
+    sheet.autoResizeColumn(i + 1);
+  });
+  
+  // 첫 행 고정
   sheet.setFrozenRows(1);
 
-  Logger.log('스프레드시트 설정이 완료되었습니다!');
+  Logger.log('캠핑 예약목록 시트 설정이 완료되었습니다.');
 }
 
-// ============================================
-// POST 요청 처리 (웹앱으로 배포 시 필요)
-// ============================================
+/**
+ * @description 웹 앱으로 POST 요청을 받았을 때 실행되는 메인 함수입니다.
+ * @param {object} e - 이벤트 객체 (요청 데이터 포함)
+ * @returns {ContentService.TextOutput} - JSON 형식의 응답
+ */
 function doPost(e) {
   try {
-    // JSON 데이터 파싱
+    // 요청 본문에서 JSON 데이터 파싱
     const data = JSON.parse(e.postData.contents);
 
-    // 예약 데이터 저장
-    const result = saveReservation(data);
+    // 데이터 저장 함수 호출
+    const recordId = saveReservation(data);
 
-    // 성공 응답
+    // 성공 응답 반환
     return ContentService
-      .createTextOutput(JSON.stringify({ success: true, reservationId: result }))
+      .createTextOutput(JSON.stringify({ success: true, recordId: recordId }))
       .setMimeType(ContentService.MimeType.JSON);
 
   } catch (error) {
-    // 오류 응답
-    Logger.log('오류 발생: ' + error.toString());
+    // 오류 로깅 및 오류 응답 반환
+    Logger.log('Error in doPost: ' + error.toString());
     return ContentService
       .createTextOutput(JSON.stringify({ success: false, message: error.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
   }
 }
 
-// ============================================
-// GET 요청 처리 (테스트용)
-// ============================================
+/**
+ * @description 수신된 예약 데이터를 스프레드시트에 저장합니다.
+ * @param {object} data - 파싱된 예약 정보 객체
+ * @returns {string} - 저장된 행의 예약번호
+ */
+function saveReservation(data) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('캠핑예약목록');
+  if (!sheet) {
+    // 시트가 존재하지 않을 경우 오류 발생
+    throw new Error('\'캠핑예약목록\' 시트를 찾을 수 없습니다. 먼저 setupSpreadsheet() 함수를 실행해주세요.');
+  }
+
+  // 데이터 저장 시간 기록
+  const timestamp = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss');
+
+  // 시트에 추가할 행 데이터 구성
+  const newRow = [
+    data.reservationNumber || '',
+    data.name || '',
+    data.phone || '',
+    data.reservationDate || '',
+    data.siteName || '',
+    data.paymentAmount || '',
+    data.paymentMethod || '',
+    data.adults || '',
+    data.children || '',
+    timestamp
+  ];
+
+  // 시트 마지막에 행 추가
+  sheet.appendRow(newRow);
+
+  Logger.log('예약 저장 완료: ' + data.reservationNumber);
+  return data.reservationNumber;
+}
+
+/**
+ * @description 웹 앱의 상태를 확인하기 위한 GET 요청 핸들러입니다.
+ * @returns {ContentService.TextOutput} - API 상태 메시지
+ */
 function doGet(e) {
   return ContentService
-    .createTextOutput(JSON.stringify({ status: 'OK', message: '카페 예약 API가 정상 작동 중입니다.' }))
+    .createTextOutput(JSON.stringify({ status: 'OK', message: 'Camping Reservation API is running.' }))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-// ============================================
-// 예약 데이터 저장
-// ============================================
-function saveReservation(data) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('예약목록');
-
-  if (!sheet) {
-    throw new Error('예약목록 시트를 찾을 수 없습니다. setupSpreadsheet()를 먼저 실행해주세요.');
-  }
-
-  // 접수번호 생성 (날짜 + 순번)
-  const today = new Date();
-  const dateStr = Utilities.formatDate(today, 'Asia/Seoul', 'yyyyMMdd');
-  const lastRow = sheet.getLastRow();
-  const reservationId = 'R' + dateStr + '-' + String(lastRow).padStart(4, '0');
-
-  // 현재 시간 (한국 시간)
-  const timestamp = Utilities.formatDate(today, 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss');
-
-  // 새 행에 데이터 추가
-  const newRow = [
-    reservationId,           // 접수번호
-    timestamp,               // 접수일시
-    data.name,               // 예약자명
-    data.department,         // 부서
-    data.email,              // 이메일
-    data.phone || '-',       // 연락처
-    data.date,               // 예약날짜
-    data.time,               // 예약시간
-    data.guests,             // 인원수
-    data.message || '-',     // 요청사항
-    '접수완료'               // 상태
-  ];
-
-  sheet.appendRow(newRow);
-
-  // 이메일 알림 발송 (선택사항)
-  try {
-    sendConfirmationEmail(data, reservationId);
-  } catch (emailError) {
-    Logger.log('이메일 발송 실패: ' + emailError.toString());
-  }
-
-  Logger.log('예약 저장 완료: ' + reservationId);
-  return reservationId;
-}
-
-// ============================================
-// 확인 이메일 발송
-// ============================================
-function sendConfirmationEmail(data, reservationId) {
-  const subject = '[사내 카페] 예약이 완료되었습니다 - ' + reservationId;
-
-  const body = `
-안녕하세요, ${data.name}님!
-
-사내 카페 예약이 완료되었습니다.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-예약 정보
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-▶ 접수번호: ${reservationId}
-▶ 예약자명: ${data.name}
-▶ 부서: ${data.department}
-▶ 예약날짜: ${data.date}
-▶ 예약시간: ${data.time}
-▶ 인원수: ${data.guests}명
-${data.message ? '▶ 요청사항: ' + data.message : ''}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-예약 시간에 맞춰 방문해주세요.
-예약 취소나 변경이 필요하시면 내선 1234로 연락주세요.
-
-감사합니다.
-사내 카페 드림
-  `;
-
-  MailApp.sendEmail(data.email, subject, body);
-  Logger.log('확인 이메일 발송 완료: ' + data.email);
-}
-
-// ============================================
-// 테스트 함수
-// ============================================
+/**
+ * @description 테스트용 함수입니다. Apps Script 편집기에서 직접 실행하여 테스트할 수 있습니다.
+ */
 function testSaveReservation() {
   const testData = {
-    name: '홍길동',
-    department: '개발팀',
-    email: 'test@example.com',
-    phone: '010-1234-5678',
-    date: '2024-12-25',
-    time: '14:00',
-    guests: '2',
-    message: '창가 자리 부탁드립니다'
+    reservationNumber: '9999999',
+    name: '테스트',
+    phone: '010-0000-0000',
+    reservationDate: '2025-12-31',
+    siteName: '테스트 사이트',
+    paymentAmount: '50,000',
+    paymentMethod: '신용카드',
+    adults: '2',
+    children: '1'
   };
-
-  const result = saveReservation(testData);
-  Logger.log('테스트 예약 완료: ' + result);
-}
-
-// ============================================
-// 예약 현황 조회 함수
-// ============================================
-function getReservationsByDate(dateStr) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('예약목록');
-  const data = sheet.getDataRange().getValues();
-
-  // 헤더 제외하고 해당 날짜의 예약만 필터링
-  const reservations = data.slice(1).filter(row => row[6] === dateStr);
-
-  return reservations;
-}
-
-// ============================================
-// 오래된 예약 정리 (선택사항)
-// ============================================
-function cleanOldReservations() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('예약목록');
-  const data = sheet.getDataRange().getValues();
-
-  const today = new Date();
-  const thirtyDaysAgo = new Date(today.getTime() - (30 * 24 * 60 * 60 * 1000));
-
-  // 30일 이상 지난 예약의 상태를 '완료'로 변경
-  for (let i = 1; i < data.length; i++) {
-    const reservationDate = new Date(data[i][6]);
-    if (reservationDate < thirtyDaysAgo && data[i][10] !== '완료') {
-      sheet.getRange(i + 1, 11).setValue('완료');
-    }
+  
+  try {
+    const recordId = saveReservation(testData);
+    Logger.log('테스트 예약 저장 성공. 예약번호: ' + recordId);
+  } catch (error) {
+    Logger.log('테스트 예약 저장 실패: ' + error.toString());
   }
-
-  Logger.log('오래된 예약 정리 완료');
 }
